@@ -1,0 +1,71 @@
+# Python cache & compiled
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Data (do NOT commit sensitive data)
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/synthetic/
+!data/synthetic/.gitkeep
+
+# Trained Models and large binaries
+models/*.pkl
+models/*.joblib
+models/*.h5
+models/*.pt
+!models/.gitkeep
+
+# Results & outputs
+results/
+*.csv
+*.xlsx
+*.json
+
+# Logs
+logs/
+*.log
+
+# Environment variables
+.env
+.env.local
+secrets.env
+
+# Testing & Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Documentation build files
+docs/_build/
+
+# Streamlit secrets and state
+.streamlit/secrets.toml
+.streamlit/state.toml
+
+# OS files
+.DS_Store
+Thumbs.db
