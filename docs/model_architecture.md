@@ -46,10 +46,10 @@ Each layer can be executed independently and tested in isolation.
  - Handle missing or partial inputs
 
    *Processing Characteristics*
-      -> Ratio-based features (e.g., read rates, miss rates)
-      -> Time-based features (e.g., days since prescription)
-      -> Simple statistical transformations
-      -> Defensive handling of empty or null values
+      - Ratio-based features (e.g., read rates, miss rates)
+      - Time-based features (e.g., days since prescription)
+      - Simple statistical transformations
+      - Defensive handling of empty or null values
 
 No learning occurs at this layer. All transformations are deterministic.
 
@@ -62,16 +62,16 @@ No learning occurs at this layer. All transformations are deterministic.
          - A list of triggered rule explanations
 
    *Architectural Properties*
-      -> Stateless
-      -> Order-independent rules
-      -> Category-based aggregation
+      - Stateless
+      - Order-independent rules
+      - Category-based aggregation
 
    *Rule Grouping*
    Rules are grouped into logical categories such as:
-      -> IVR engagement
-      -> SMS engagement
-      -> Treatment behavior
-      -> Patient complexity indicators
+      - IVR engagement
+      - SMS engagement
+      - Treatment behavior
+      - Patient complexity indicators
 
    For each category:
       - Only the maximum contributing rule is used
@@ -89,9 +89,9 @@ No learning occurs at this layer. All transformations are deterministic.
       - Capture patterns not explicitly encoded in rules
 
    *Design Constraints*
-      -> Operates on the same feature schema as the rule engine
-      -> Accepts missing values without preprocessing failure
-      -> Produces a single continuous risk score
+      - Operates on the same feature schema as the rule engine
+      - Accepts missing values without preprocessing failure
+      - Produces a single continuous risk score
 
    The ML model is read-only at inference time and loaded from a serialized artifact.
 
@@ -103,9 +103,9 @@ No learning occurs at this layer. All transformations are deterministic.
                               - ML model
 
    *Combination Logic*
-      -> A weighted linear aggregation is applied:  final_risk_score = (rule_score × rule_weight) + (ml_score × ml_weight)
-      -> Weights are fixed and defined in code to ensure reproducibility.
-      -> This layer acts as the single source of truth for final risk computation.
+      - A weighted linear aggregation is applied:  final_risk_score = (rule_score × rule_weight) + (ml_score × ml_weight)
+      - Weights are fixed and defined in code to ensure reproducibility.
+      - This layer acts as the single source of truth for final risk computation.
 
 **7. Risk Level Mapping**
 
@@ -118,14 +118,14 @@ This mapping is threshold-based and implemented centrally to ensure consistent i
 
 **8. Explanation Assembly**
    *Inputs*
-      -> Triggered rules
-      -> Rule category contributions
-      -> Final ensemble score
+      - Triggered rules
+      - Rule category contributions
+      - Final ensemble score
 
    *Outputs*
-      -> Human-readable explanation object
-      -> Score breakdown by source
-      -> Trigger summaries
+      - Human-readable explanation object
+      - Score breakdown by source
+      - Trigger summaries
 
 No post-hoc model interpretation libraries are required at runtime; explanations are derived from architectural components directly.
 
