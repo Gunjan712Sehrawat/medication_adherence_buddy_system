@@ -1,225 +1,184 @@
-# Model Architecture Documentation
+Model Architecture
 
-## Overview
+**1. Architectural Scope**
 
-The Medication Adherence Risk Scoring System uses a hybrid ensemble approach combining rule-based clinical logic with machine learning for optimal interpretability and performance.
+This document describes the internal technical architecture of the Medication Adherence Buddy System, focusing on:
+ - Data flow between modules
+ - Model composition and execution order
+ - Scoring logic and aggregation
+ - Interfaces between ML, rules, API, and UI layers
+Non-architectural topics such as motivation, impact, ethics, and deployment strategy are intentionally excluded.
 
-## Architecture Components
+**2. High-Level Architecture Layout**
 
-### 1. Rule-Based Engine (`rule_engine.py`)
+The system follows a **layered and modular architecture, separating concerns across data processing, scoring logic, orchestration, and presentation**.
 
-**Purpose**: Provide clinically interpretable, explainable risk scores based on established medical knowledge.
+Input Data
+(IVR / SMS / Patient Signals)
+        │
+        ▼
+Feature Processing Layer
+(src/features, src/utils)
+        │
+        ├──► Rule-Based Scoring Engine
+        │     (deterministic logic)
+        │
+        ├──► Machine Learning Model
+        │     (LightGBM ensemble)
+        │
+        ▼
+Ensemble Risk Aggregator
+(src/models/ensemble.py)
+        │
+        ▼
+Explanation Generator
+(rule triggers + score breakdown)
+        │
+        ├──► Flask API (src/api)
+        └──► Streamlit UI (streamlit_app)
 
-**Key Features**:
-- 12+ clinically-validated risk rules
-- Weighted by evidence strength
-- Categories: IVR, SMS, Behavioral, Demographics
-- Works with incomplete data
-- Always provides explanations
+Each layer can be executed independently and tested in isolation.
 
-**Rule Categories**:
+**3. Feature Processing Layer**
 
-#### IVR Rules
-- `high_ivr_miss_rate`: >60% missed calls → Score 0.8
-- `no_ivr_response`: Zero response to 3+ calls → Score 0.9
-- `declining_ivr_response`: Deteriorating pattern → Score 0.7
+ - Transform raw engagement signals into numeric features
+ - Ensure consistency between training and inference
+ - Handle missing or partial inputs
 
-#### SMS Rules
-- `low_sms_read_rate`: <40% read rate → Score 0.6
-- `slow_sms_response`: >24hr avg response → Score 0.5
-- `no_sms_engagement`: No reads after 5+ messages → Score 0.85
+   *Processing Characteristics*
+      -> Ratio-based features (e.g., read rates, miss rates)
+      -> Time-based features (e.g., days since prescription)
+      -> Simple statistical transformations
+      -> Defensive handling of empty or null values
 
-#### Behavioral Rules
-- `missed_refill_window`: >3 days overdue → Score 0.9
-- `early_treatment_phase`: First 2 weeks → Score 0.4
-- `weekend_nonadherence`: Low weekend adherence → Score 0.5
+No learning occurs at this layer. All transformations are deterministic.
 
-#### Demographic Rules
-- `high_risk_age`: <25 or >75 years → Score 0.3
-- `multiple_medications`: 5+ medications → Score 0.4
-- `complex_regimen`: 3+ doses daily → Score 0.35
+**4. Rule-Based Scoring Engine**
+   *Location* : src/models (rule logic invoked via ensemble)
 
-**Scoring Logic**:
-```
-risk_score = Σ(max_score_per_category × category_weight)
+   *Role in Architecture*
+   - The rule engine provides a deterministic risk estimate based on predefined conditions. It runs before the ML model and produces:   
+         - A numeric rule-based risk score
+         - A list of triggered rule explanations
 
-Category Weights:
-- IVR: 35%
-- SMS: 30%
-- Behavioral: 25%
-- Demographics: 10%
-```
+   *Architectural Properties*
+      -> Stateless
+      -> Order-independent rules
+      -> Category-based aggregation
 
-### 2. Machine Learning Component (`ensemble.py`)
+   *Rule Grouping*
+   Rules are grouped into logical categories such as:
+      -> IVR engagement
+      -> SMS engagement
+      -> Treatment behavior
+      -> Patient complexity indicators
 
-**Purpose**: Capture complex, non-linear patterns that rules may miss.
+   For each category:
+      - Only the maximum contributing rule is used
+      - Prevents score inflation from correlated conditions
+      - Category outputs are combined using fixed weights.
 
-**Model**: LightGBM Gradient Boosting
+**5. Machine Learning Component**
+   *Location* : src/models/ensemble.py
+               models/ensemble_model.pkl
 
-**Why LightGBM**:
-- Fast training on small datasets
-- Built-in handling of missing values
-- Native support for categorical features
-- Low memory footprint
-- Excellent performance
+   *Model Type* : Gradient Boosted Decision Trees (LightGBM)
 
-**Hyperparameters** (tuned for low-data regime):
-```yaml
-n_estimators: 100
-max_depth: 5          # Prevent overfitting
-learning_rate: 0.05   # Conservative learning
-min_child_samples: 20 # Avoid small leaf nodes
-subsample: 0.8        # Row sampling
-colsample_bytree: 0.8 # Feature sampling
-```
+   *Architectural Role*
+      - Learn non-linear interactions between features
+      - Capture patterns not explicitly encoded in rules
 
-**Feature Engineering**:
-- Derived rates (response rate, miss rate)
-- Temporal features (early/established treatment)
-- Interaction features (overall engagement)
-- Missing value imputation
+   *Design Constraints*
+      -> Operates on the same feature schema as the rule engine
+      -> Accepts missing values without preprocessing failure
+      -> Produces a single continuous risk score
 
-### 3. Ensemble Combination
+   The ML model is read-only at inference time and loaded from a serialized artifact.
 
-**Strategy**: Weighted average of rule-based and ML predictions
+**6. Ensemble Risk Aggregation**
+   *Location* :  src/models/ensemble.py
 
-```
-final_score = 0.4 × rule_score + 0.6 × ml_score
-```
+   *Purpose*
+      Combine outputs from:   - Rule-based engine
+                              - ML model
 
-**Rationale**:
-- Rules provide interpretability and domain knowledge
-- ML captures data patterns and interactions
-- Ensemble is more robust than either alone
+   *Combination Logic*
+      -> A weighted linear aggregation is applied:  final_risk_score = (rule_score × rule_weight) + (ml_score × ml_weight)
+      -> Weights are fixed and defined in code to ensure reproducibility.
+      -> This layer acts as the single source of truth for final risk computation.
 
-**Calibration**:
-- Isotonic regression for well-calibrated probabilities
-- Ensures risk scores match actual risk rates
+**7. Risk Level Mapping**
 
-## Explainability
+The continuous risk score is mapped into discrete categories:
+   - LOW
+   - MEDIUM
+   - HIGH
+     
+This mapping is threshold-based and implemented centrally to ensure consistent interpretation across **API and UI layers**.
 
-### SHAP (SHapley Additive exPlanations)
+**8. Explanation Assembly**
+   *Inputs*
+      -> Triggered rules
+      -> Rule category contributions
+      -> Final ensemble score
 
-Used to explain ML predictions:
-- Feature importance globally
-- Individual prediction explanations
-- Interaction effects
+   *Outputs*
+      -> Human-readable explanation object
+      -> Score breakdown by source
+      -> Trigger summaries
 
-### Combined Explanation
+No post-hoc model interpretation libraries are required at runtime; explanations are derived from architectural components directly.
 
-For each prediction:
-1. Overall risk score (0-1)
-2. Risk level (LOW/MEDIUM/HIGH)
-3. Rule-based factors (human-readable)
-4. ML feature contributions (SHAP values)
-5. Recommended interventions
+**9. API Integration Layer**
+   *Location* : src/api/flask_app.py
 
-## Handling Low-Data Scenarios
+   - Load ensemble model at startup
+   - Expose prediction and explanation endpoints
+   - Validate input schema
+   - Return structured JSON responses
 
-### Strategies:
+The API layer does not perform feature engineering logic directly; it delegates computation to the model layer.
 
-1. **Synthetic Data Generation**
-   - Realistic correlations
-   - Controlled class balance
-   - Augmentation with noise
+**10. Streamlit Interface Layer**
+   *Location* : streamlit_app/app.py
 
-2. **Regularization**
-   - Max depth limit
-   - Min samples per leaf
-   - L2 regularization
+   - Collect user input
+   - Display scores, risk levels, and explanations
+   - Visualize distributions and summaries
+   - The UI consumes either: Direct model calls (local mode), or API responses (service mode)
 
-3. **Cross-Validation**
-   - Stratified 5-fold CV
-   - Prevents overfitting
-   - Robust performance estimates
+It contains no business logic related to scoring.
 
-4. **Transfer Learning** (future)
-   - Pre-trained on large public datasets
-   - Fine-tune on institution data
+**11. Model Lifecycle Boundaries**
 
-## Privacy Preservation
+   - Training logic is isolated from inference paths
+   - Serialized models are stored outside source code
+   - Architecture supports replacement of the ML model without modifying rule logic
+   - Rule logic can be updated independently of retraining
 
-### Techniques:
+**12. Architectural Guarantees**
 
-1. **Data Anonymization**
-   - Patient ID hashing (SHA-256)
-   - PII removal/encryption
+   - Deterministic behavior for identical inputs
+   - Clear separation between logic, orchestration, and presentation
+   - No hidden state across requests
+   - Human-interpretable scoring pipeline
 
-2. **Differential Privacy** (optional)
-   - DP-SGD training
-   - Noise injection
-   - Privacy budget (ε=1.0)
+**13. Non-Goals of the Architecture**
 
-3. **Federated Learning** (future)
-   - Train on decentralized data
-   - No data sharing between institutions
+This architecture explicitly does not:
 
-## Model Evaluation
+   - Perform automated clinical actions
+   - Store personal patient identifiers
+   - Self-update or retrain in production
+   - Replace human decision-making
 
-### Metrics:
+**14. Architectural Summary**
 
-- **ROC-AUC**: Overall discrimination ability
-- **Precision**: Minimize false positives (alert fatigue)
-- **Recall**: Catch most at-risk patients
-- **Calibration**: Risk scores match actual rates
+The system architecture is a hybrid, layered design where:
 
-### Threshold Tuning:
+   - Rules ensure interpretability and safety
+   - ML improves pattern recognition
+   - Ensemble logic balances both
+   - API and UI layers remain thin and decoupled
 
-Optimize based on institution priorities:
-- High recall: Catch all at-risk (more alerts)
-- High precision: Only high-confidence (fewer alerts)
-- Balanced: F1 score optimization
-
-## Production Deployment
-
-### Model Serving:
-
-1. **REST API** (Flask)
-   - Single prediction: `/api/predict`
-   - Batch prediction: `/api/predict_batch`
-   - Explanation: `/api/explain`
-
-2. **Dashboard** (Streamlit)
-   - Interactive risk assessment
-   - Model training interface
-   - Analytics and monitoring
-
-### Monitoring:
-
-Track in production:
-- Prediction latency
-- Model drift (feature distributions)
-- Alert rates
-- Intervention outcomes
-
-### Retraining:
-
-When to retrain:
-- New data available (monthly)
-- Performance degradation detected
-- Population characteristics change
-- New medication programs
-
-## Future Enhancements
-
-1. **Deep Learning** (if data allows)
-   - LSTM for temporal patterns
-   - Attention mechanisms
-
-2. **Multi-Task Learning**
-   - Predict adherence + outcomes
-   - Shared representations
-
-3. **Causal Inference**
-   - Estimate intervention effects
-   - Optimal treatment assignment
-
-4. **Active Learning**
-   - Query most informative cases
-   - Efficient labeling
-
-## References
-
-- [LightGBM Documentation](https://lightgbm.readthedocs.io/)
-- [SHAP Documentation](https://shap.readthedocs.io/)
-- [Clinical Adherence Literature](https://www.ncbi.nlm.nih.gov/)
+This structure enables controlled experimentation, clear debugging, and responsible use in healthcare-adjacent environments.
