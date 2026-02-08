@@ -88,6 +88,8 @@ The model was evaluated using **synthetic patient data**, designed to reflect re
 - Risk thresholds can be adjusted based on organizational needs
 - Performance is intended to **support early review**, not final diagnosis
 
+Detailed outputs and visual evidence are available in the Results/folder.
+
 ---
 
 ## 🖥️ Interfaces
